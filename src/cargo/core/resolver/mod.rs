@@ -141,6 +141,13 @@ pub fn resolve(
         let cksum = summary.checksum().map(|s| s.to_string());
         cksums.insert(summary.package_id(), cksum);
     }
+
+    /*let mut public_dependencies = HashSet::new();
+    if check_public_dependencies {
+        for 
+    }*/
+
+
     let resolve = Resolve::new(
         cx.graph(),
         cx.resolve_replacements(),

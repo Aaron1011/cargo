@@ -22,6 +22,7 @@ use log::debug;
 use same_file::is_same_file;
 use serde::Serialize;
 
+use crate::core::{Feature, Features};
 use crate::core::manifest::TargetSourcePath;
 use crate::core::profiles::{Lto, Profile};
 use crate::core::{PackageId, Target};
@@ -967,6 +968,7 @@ fn build_deps_args<'a, 'cfg>(
         }
     }
 
+
     return Ok(());
 
     fn link_to<'a, 'cfg>(
@@ -988,6 +990,12 @@ fn build_deps_args<'a, 'cfg>(
             v.push(&path::MAIN_SEPARATOR.to_string());
             v.push(&output.path.file_name().unwrap());
             cmd.arg("--extern").arg(&v);
+
+            if current.pkg.manifest().features().require(Feature::public_dependency()).is_ok() {
+                if !bcx.is_public_dependency(current, dep) {
+                    cmd.arg("--extern-private").arg(&v);
+                }
+            }
         }
         Ok(())
     }
