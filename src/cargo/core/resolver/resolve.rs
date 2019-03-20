@@ -5,7 +5,6 @@ use std::iter::FromIterator;
 
 use url::Url;
 
-use crate::core::interning::InternedString;
 use crate::core::{Dependency, PackageId, PackageIdSpec, Summary, Target};
 use crate::core::dependency::Kind;
 use crate::util::errors::CargoResult;

@@ -22,7 +22,7 @@ use log::debug;
 use same_file::is_same_file;
 use serde::Serialize;
 
-use crate::core::{Feature, Features};
+use crate::core::Feature;
 use crate::core::manifest::TargetSourcePath;
 use crate::core::profiles::{Lto, Profile};
 use crate::core::{PackageId, Target};
