@@ -237,6 +237,7 @@ pub struct DetailedTomlDependency {
     #[serde(rename = "default_features")]
     default_features2: Option<bool>,
     package: Option<String>,
+    public: Option<bool>
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1437,6 +1438,11 @@ impl DetailedTomlDependency {
         if let Some(name_in_toml) = explicit_name_in_toml {
             cx.features.require(Feature::rename_dependency())?;
             dep.set_explicit_name_in_toml(name_in_toml);
+        }
+
+        if let Some(p) = self.public {
+            cx.features.require(Feature::public_dependency())?;
+            dep.set_public(p);
         }
         Ok(dep)
     }
