@@ -959,13 +959,21 @@ fn build_deps_args<'a, 'cfg>(
         }
     }
 
+    let mut unstable_opts = false;
+
     for dep in dep_targets {
         if dep.mode.is_run_custom_build() {
             cmd.env("OUT_DIR", &cx.files().build_script_out_dir(&dep));
         }
         if dep.target.linkable() && !dep.mode.is_doc() {
-            link_to(cmd, cx, unit, &dep)?;
+            link_to(cmd, cx, unit, &dep, &mut unstable_opts)?;
         }
+    }
+
+    // This will only be set if we're already usign a feature
+    // requiring nightly rust
+    if unstable_opts {
+        cmd.arg("-Z").arg("unstable-options");
     }
 
 
@@ -976,6 +984,7 @@ fn build_deps_args<'a, 'cfg>(
         cx: &mut Context<'a, 'cfg>,
         current: &Unit<'a>,
         dep: &Unit<'a>,
+        need_unstable_opts: &mut bool
     ) -> CargoResult<()> {
         let bcx = cx.bcx;
         for output in cx.outputs(dep)?.iter() {
@@ -994,6 +1003,7 @@ fn build_deps_args<'a, 'cfg>(
             if current.pkg.manifest().features().require(Feature::public_dependency()).is_ok() {
                 if !bcx.is_public_dependency(current, dep) {
                     cmd.arg("--extern-private").arg(&v);
+                    *need_unstable_opts = true
                 }
             }
         }
