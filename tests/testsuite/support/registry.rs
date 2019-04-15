@@ -126,6 +126,7 @@ pub fn alt_api_url() -> Url {
 ///
 /// p.cargo("run").with_stdout("24").run();
 /// ```
+#[must_use]
 pub struct Package {
     name: String,
     vers: String,
@@ -444,19 +445,14 @@ impl Package {
     }
 
     fn make_archive(&self) {
-        let features = if self.deps.iter().any(|dep| dep.registry.is_some()) {
-            "cargo-features = [\"alternative-registries\"]\n"
-        } else {
-            ""
-        };
         let mut manifest = format!(
             r#"
-            {}[package]
+            [package]
             name = "{}"
             version = "{}"
             authors = []
         "#,
-            features, self.name, self.vers
+            self.name, self.vers
         );
         for dep in self.deps.iter() {
             let target = match dep.target {

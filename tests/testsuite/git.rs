@@ -13,6 +13,13 @@ use crate::support::sleep_ms;
 use crate::support::Project;
 use crate::support::{basic_lib_manifest, basic_manifest, git, main_file, path2url, project};
 
+fn disable_git_cli() -> bool {
+    // mingw git on Windows does not support Windows-style file URIs.
+    // Appveyor in the rust repo has that git up front in the PATH instead
+    // of Git-for-Windows, which causes this to fail.
+    env::var("CARGO_TEST_DISABLE_GIT_CLI") == Ok("1".to_string())
+}
+
 #[test]
 fn cargo_compile_simple_git_dep() {
     let project = project();
@@ -158,7 +165,7 @@ fn cargo_compile_offline_with_cached_git_dep() {
         File::create(&prj.root().join("Cargo.toml"))
             .unwrap()
             .write_all(
-                &format!(
+                format!(
                     r#"
             [project]
             name = "cache_git_dep"
@@ -220,7 +227,7 @@ fn cargo_compile_offline_with_cached_git_dep() {
     File::create(&p.root().join("Cargo.toml"))
         .unwrap()
         .write_all(
-            &format!(
+            format!(
                 r#"
         [project]
         name = "foo"
@@ -2477,132 +2484,50 @@ fn two_at_rev_instead_of_tag() {
 }
 
 #[test]
-#[ignore] // accesses crates.io
 fn include_overrides_gitignore() {
-    let p = git::new("reduction", |repo| {
+    // Make sure that `package.include` takes precedence over .gitignore.
+    let p = git::new("foo", |repo| {
         repo.file(
             "Cargo.toml",
             r#"
             [package]
-            name = "reduction"
+            name = "foo"
             version = "0.5.0"
-            authors = ["pnkfelix"]
-            build = "tango-build.rs"
-            include = ["src/lib.rs", "src/incl.rs", "src/mod.md", "tango-build.rs", "Cargo.toml"]
-
-            [build-dependencies]
-            filetime = "0.1"
+            include = ["src/lib.rs", "ignored.txt", "Cargo.toml"]
         "#,
         )
         .file(
             ".gitignore",
             r#"
-            target
+            /target
             Cargo.lock
-            # Below files represent generated code, thus not managed by `git`
-            src/incl.rs
-            src/not_incl.rs
+            ignored.txt
         "#,
         )
-        .file(
-            "tango-build.rs",
-            r#"
-            extern crate filetime;
-            use filetime::FileTime;
-            use std::fs::{self, File};
-
-            fn main() {
-                // generate files, or bring their timestamps into sync.
-                let source = "src/mod.md";
-
-                let metadata = fs::metadata(source).unwrap();
-                let mtime = FileTime::from_last_modification_time(&metadata);
-                let atime = FileTime::from_last_access_time(&metadata);
-
-                // sync time stamps for generated files with time stamp of source file.
-
-                let files = ["src/not_incl.rs", "src/incl.rs"];
-                for file in files.iter() {
-                    File::create(file).unwrap();
-                    filetime::set_file_times(file, atime, mtime).unwrap();
-                }
-            }
-        "#,
-        )
-        .file("src/lib.rs", "mod not_incl; mod incl;")
-        .file(
-            "src/mod.md",
-            r#"
-            (The content of this file does not matter since we are not doing real codegen.)
-        "#,
-        )
+        .file("src/lib.rs", "")
+        .file("ignored.txt", "")
+        .file("build.rs", "fn main() {}")
     })
     .unwrap();
 
-    println!("build 1: all is new");
+    p.cargo("build").run();
+    p.change_file("ignored.txt", "Trigger rebuild.");
     p.cargo("build -v")
         .with_stderr(
             "\
-[UPDATING] `[..]` index
-[DOWNLOADED] filetime [..]
-[DOWNLOADED] libc [..]
-[COMPILING] libc [..]
-[RUNNING] `rustc --crate-name libc [..]`
-[COMPILING] filetime [..]
-[RUNNING] `rustc --crate-name filetime [..]`
-[COMPILING] reduction [..]
-[RUNNING] `rustc --crate-name build_script_tango_build tango-build.rs --crate-type bin [..]`
-[RUNNING] `[..]/build-script-tango-build`
-[RUNNING] `rustc --crate-name reduction src/lib.rs --crate-type lib [..]`
+[COMPILING] foo v0.5.0 ([..])
+[RUNNING] `[..]build-script-build[..]`
+[RUNNING] `rustc --crate-name foo src/lib.rs [..]`
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
-
-    println!("build 2: nothing changed; file timestamps reset by build script");
-    p.cargo("build -v")
-        .with_stderr(
+    p.cargo("package --list --allow-dirty")
+        .with_stdout(
             "\
-[FRESH] libc [..]
-[FRESH] filetime [..]
-[FRESH] reduction [..]
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
-",
-        )
-        .run();
-
-    println!("build 3: touch `src/not_incl.rs`; expect build script **not** re-run");
-    sleep_ms(1000);
-    File::create(p.root().join("src").join("not_incl.rs")).unwrap();
-
-    p.cargo("build -v")
-        .with_stderr(
-            "\
-[FRESH] libc [..]
-[FRESH] filetime [..]
-[COMPILING] reduction [..]
-[RUNNING] `rustc --crate-name reduction src/lib.rs --crate-type lib [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
-",
-        )
-        .run();
-
-    // This final case models the bug from rust-lang/cargo#4135: an
-    // explicitly included file should cause a build-script re-run,
-    // even if that same file is matched by `.gitignore`.
-    println!("build 4: touch `src/incl.rs`; expect build script re-run");
-    sleep_ms(1000);
-    File::create(p.root().join("src").join("incl.rs")).unwrap();
-
-    p.cargo("build -v")
-        .with_stderr(
-            "\
-[FRESH] libc [..]
-[FRESH] filetime [..]
-[COMPILING] reduction [..]
-[RUNNING] `[..]/build-script-tango-build`
-[RUNNING] `rustc --crate-name reduction src/lib.rs --crate-type lib [..]`
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+Cargo.toml
+ignored.txt
+src/lib.rs
 ",
         )
         .run();
@@ -2772,10 +2697,7 @@ fn failed_submodule_checkout() {
 
 #[test]
 fn use_the_cli() {
-    if env::var("CARGO_TEST_DISABLE_GIT_CLI") == Ok("1".to_string()) {
-        // mingw git on Windows does not support Windows-style file URIs.
-        // Appveyor in the rust repo has that git up front in the PATH instead
-        // of Git-for-Windows, which causes this to fail.
+    if disable_git_cli() {
         return;
     }
     let project = project();
@@ -2861,7 +2783,7 @@ fn templatedir_doesnt_cause_problems() {
     File::create(paths::home().join(".gitconfig"))
         .unwrap()
         .write_all(
-            &format!(
+            format!(
                 r#"
                 [init]
                 templatedir = {}
@@ -2879,4 +2801,65 @@ fn templatedir_doesnt_cause_problems() {
         .unwrap();
 
     p.cargo("build").run();
+}
+
+#[test]
+fn git_with_cli_force() {
+    if disable_git_cli() {
+        return;
+    }
+    // Supports a force-pushed repo.
+    let git_project = git::new("dep1", |project| {
+        project
+            .file("Cargo.toml", &basic_lib_manifest("dep1"))
+            .file("src/lib.rs", r#"pub fn f() { println!("one"); }"#)
+    })
+    .unwrap();
+    let p = project()
+        .file(
+            "Cargo.toml",
+            &format!(
+                r#"
+                [project]
+                name = "foo"
+                version = "0.0.1"
+                edition = "2018"
+
+                [dependencies]
+                dep1 = {{ git = "{}" }}
+                "#,
+                git_project.url()
+            ),
+        )
+        .file("src/main.rs", "fn main() { dep1::f(); }")
+        .file(
+            ".cargo/config",
+            "
+            [net]
+            git-fetch-with-cli = true
+            ",
+        )
+        .build();
+    p.cargo("build").run();
+    p.rename_run("foo", "foo1").with_stdout("one").run();
+
+    // commit --amend a change that will require a force fetch.
+    let repo = git2::Repository::open(&git_project.root()).unwrap();
+    git_project.change_file("src/lib.rs", r#"pub fn f() { println!("two"); }"#);
+    git::add(&repo);
+    let id = repo.refname_to_id("HEAD").unwrap();
+    let commit = repo.find_commit(id).unwrap();
+    let tree_id = t!(t!(repo.index()).write_tree());
+    t!(commit.amend(
+        Some("HEAD"),
+        None,
+        None,
+        None,
+        None,
+        Some(&t!(repo.find_tree(tree_id)))
+    ));
+    // Perform the fetch.
+    p.cargo("update").run();
+    p.cargo("build").run();
+    p.rename_run("foo", "foo2").with_stdout("two").run();
 }

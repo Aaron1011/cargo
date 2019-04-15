@@ -170,7 +170,7 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
                         unit.target.clone(),
                         output.path.clone(),
                     ));
-                } else if unit.target.is_bin() || unit.target.is_bin_example() {
+                } else if unit.target.is_executable() {
                     self.compilation.binaries.push(bindst.clone());
                 }
             }
@@ -276,7 +276,7 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
                 continue;
             }
 
-            let is_binary = unit.target.is_bin() || unit.target.is_bin_example();
+            let is_binary = unit.target.is_executable();
             let is_test = unit.mode.is_any_test() && !unit.mode.is_check();
 
             if is_binary || is_test {
@@ -430,9 +430,10 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
                     path.display()
                 )
             };
-        let suggestion = "Consider changing their names to be unique or compiling them separately.\n\
-            This may become a hard error in the future; see \
-            <https://github.com/rust-lang/cargo/issues/6313>.";
+        let suggestion =
+            "Consider changing their names to be unique or compiling them separately.\n\
+             This may become a hard error in the future; see \
+             <https://github.com/rust-lang/cargo/issues/6313>.";
         let report_collision = |unit: &Unit<'_>,
                                 other_unit: &Unit<'_>,
                                 path: &PathBuf|
@@ -474,11 +475,11 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
         for unit in keys {
             for output in self.outputs(unit)?.iter() {
                 if let Some(other_unit) = output_collisions.insert(output.path.clone(), unit) {
-                    report_collision(unit, &other_unit, &output.path)?;
+                    report_collision(unit, other_unit, &output.path)?;
                 }
                 if let Some(hardlink) = output.hardlink.as_ref() {
                     if let Some(other_unit) = output_collisions.insert(hardlink.clone(), unit) {
-                        report_collision(unit, &other_unit, hardlink)?;
+                        report_collision(unit, other_unit, hardlink)?;
                     }
                 }
                 if let Some(ref export_path) = output.export_path {
@@ -488,7 +489,7 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
                              {}\
                              The exported filenames should be unique.\n\
                              {}",
-                            describe_collision(unit, &other_unit, &export_path),
+                            describe_collision(unit, other_unit, export_path),
                             suggestion
                         ))?;
                     }

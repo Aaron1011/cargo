@@ -166,8 +166,13 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
         }
     }
 
-    /// Returns the root of the build output tree.
+    /// Returns the root of the build output tree for the target
     pub fn target_root(&self) -> &Path {
+        self.target.as_ref().unwrap_or(&self.host).dest()
+    }
+
+    /// Returns the root of the build output tree for the host
+    pub fn host_root(&self) -> &Path {
         self.host.dest()
     }
 
@@ -444,7 +449,7 @@ fn compute_metadata<'a, 'cfg>(
     if !(unit.mode.is_any_test() || unit.mode.is_check())
         && (unit.target.is_dylib()
             || unit.target.is_cdylib()
-            || (unit.target.is_bin() && bcx.target_triple().starts_with("wasm32-")))
+            || (unit.target.is_executable() && bcx.target_triple().starts_with("wasm32-")))
         && unit.pkg.package_id().source_id().is_path()
         && __cargo_default_lib_metadata.is_err()
     {
@@ -469,13 +474,6 @@ fn compute_metadata<'a, 'cfg>(
         .stable_hash(bcx.ws.root())
         .hash(&mut hasher);
 
-    // Add package properties which map to environment variables
-    // exposed by Cargo.
-    let manifest_metadata = unit.pkg.manifest().metadata();
-    manifest_metadata.authors.hash(&mut hasher);
-    manifest_metadata.description.hash(&mut hasher);
-    manifest_metadata.homepage.hash(&mut hasher);
-
     // Also mix in enabled features to our metadata. This'll ensure that
     // when changing feature sets each lib is separately cached.
     bcx.resolve
@@ -498,7 +496,7 @@ fn compute_metadata<'a, 'cfg>(
     // settings like debuginfo and whatnot.
     unit.profile.hash(&mut hasher);
     unit.mode.hash(&mut hasher);
-    if let Some(ref args) = bcx.extra_args_for(unit) {
+    if let Some(args) = bcx.extra_args_for(unit) {
         args.hash(&mut hasher);
     }
 

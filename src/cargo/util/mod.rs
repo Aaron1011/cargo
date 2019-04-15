@@ -2,7 +2,7 @@ use std::time::Duration;
 
 pub use self::cfg::{Cfg, CfgExpr};
 pub use self::config::{homedir, Config, ConfigValue};
-pub use self::dependency_queue::{DependencyQueue, Dirty, Fresh, Freshness};
+pub use self::dependency_queue::DependencyQueue;
 pub use self::diagnostic_server::RustfixDiagnosticServer;
 pub use self::errors::{internal, process_error};
 pub use self::errors::{CargoResult, CargoResultExt, CliResult, Test};
@@ -47,7 +47,7 @@ pub mod process_builder;
 pub mod profile;
 mod progress;
 mod read2;
-mod rustc;
+pub mod rustc;
 mod sha256;
 pub mod to_semver;
 pub mod to_url;

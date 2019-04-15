@@ -24,11 +24,11 @@ use serde::Serialize;
 
 use crate::core::Feature;
 use crate::core::manifest::TargetSourcePath;
-use crate::core::profiles::{Lto, Profile};
+use crate::core::profiles::{Lto, PanicStrategy, Profile};
 use crate::core::{PackageId, Target};
 use crate::util::errors::{CargoResult, CargoResultExt, Internal, ProcessError};
 use crate::util::paths;
-use crate::util::{self, machine_message, process, Freshness, ProcessBuilder};
+use crate::util::{self, machine_message, process, ProcessBuilder};
 use crate::util::{internal, join_paths, profile};
 pub use self::build_config::{BuildConfig, CompileMode, MessageFormat};
 pub use self::build_context::{BuildContext, FileFlavor, TargetConfig, TargetInfo};
@@ -37,6 +37,7 @@ pub use self::compilation::{Compilation, Doctest};
 pub use self::context::{Context, Unit};
 pub use self::custom_build::{BuildMap, BuildOutput, BuildScripts};
 use self::job::{Job, Work};
+pub use self::job::Freshness;
 use self::job_queue::JobQueue;
 pub use self::layout::is_bad_artifact_name;
 use self::output_depinfo::output_depinfo;
@@ -142,35 +143,31 @@ fn compile<'a, 'cfg: 'a>(
     fingerprint::prepare_init(cx, unit)?;
     cx.links.validate(bcx.resolve, unit)?;
 
-    let (dirty, fresh, freshness) = if unit.mode.is_run_custom_build() {
+    let job = if unit.mode.is_run_custom_build() {
         custom_build::prepare(cx, unit)?
     } else if unit.mode == CompileMode::Doctest {
         // We run these targets later, so this is just a no-op for now.
-        (Work::noop(), Work::noop(), Freshness::Fresh)
+        Job::new(Work::noop(), Freshness::Fresh)
     } else if build_plan {
-        (
-            rustc(cx, unit, &exec.clone())?,
-            Work::noop(),
-            Freshness::Dirty,
-        )
+        Job::new(rustc(cx, unit, &exec.clone())?, Freshness::Dirty)
     } else {
-        let (mut freshness, dirty, fresh) = fingerprint::prepare_target(cx, unit)?;
-        let work = if unit.mode.is_doc() {
-            rustdoc(cx, unit)?
+        let force = exec.force_rebuild(unit) || force_rebuild;
+        let mut job = fingerprint::prepare_target(cx, unit, force)?;
+        job.before(if job.freshness() == Freshness::Dirty {
+            let work = if unit.mode.is_doc() {
+                rustdoc(cx, unit)?
+            } else {
+                rustc(cx, unit, exec)?
+            };
+            work.then(link_targets(cx, unit, false)?)
         } else {
-            rustc(cx, unit, exec)?
-        };
-        // Need to link targets on both the dirty and fresh.
-        let dirty = work.then(link_targets(cx, unit, false)?).then(dirty);
-        let fresh = link_targets(cx, unit, true)?.then(fresh);
+            // Need to link targets on both the dirty and fresh.
+            link_targets(cx, unit, true)?
+        });
 
-        if exec.force_rebuild(unit) || force_rebuild {
-            freshness = Freshness::Dirty;
-        }
-
-        (dirty, fresh, freshness)
+        job
     };
-    jobs.enqueue(cx, unit, Job::new(dirty, fresh), freshness)?;
+    jobs.enqueue(cx, unit, job)?;
     drop(p);
 
     // Be sure to compile all dependencies of this target as well.
@@ -212,6 +209,7 @@ fn rustc<'a, 'cfg>(
     // If we are a binary and the package also contains a library, then we
     // don't pass the `-l` flags.
     let pass_l_flag = unit.target.is_lib() || !unit.pkg.targets().iter().any(|t| t.is_lib());
+    let pass_cdylib_link_args = unit.target.is_cdylib();
     let do_rename = unit.target.allows_underscores() && !unit.mode.is_any_test();
     let real_name = unit.target.name().to_string();
     let crate_name = unit.target.crate_name();
@@ -234,7 +232,7 @@ fn rustc<'a, 'cfg>(
     exec.init(cx, unit);
     let exec = exec.clone();
 
-    let root_output = cx.files().target_root().to_path_buf();
+    let root_output = cx.files().host_root().to_path_buf();
     let pkg_root = unit.pkg.root().to_path_buf();
     let cwd = rustc
         .get_cwd()
@@ -258,6 +256,7 @@ fn rustc<'a, 'cfg>(
                     &build_state,
                     &build_deps,
                     pass_l_flag,
+                    pass_cdylib_link_args,
                     current_id,
                 )?;
                 add_plugin_deps(&mut rustc, &build_state, &build_deps, &root_output)?;
@@ -347,6 +346,7 @@ fn rustc<'a, 'cfg>(
         build_state: &BuildMap,
         build_scripts: &BuildScripts,
         pass_l_flag: bool,
+        pass_cdylib_link_args: bool,
         current_id: PackageId,
     ) -> CargoResult<()> {
         for key in build_scripts.to_link.iter() {
@@ -366,6 +366,12 @@ fn rustc<'a, 'cfg>(
                 if pass_l_flag {
                     for name in output.library_links.iter() {
                         rustc.arg("-l").arg(name);
+                    }
+                }
+                if pass_cdylib_link_args {
+                    for arg in output.linker_args.iter() {
+                        let link_arg = format!("link-arg={}", arg);
+                        rustc.arg("-C").arg(link_arg);
                     }
                 }
             }
@@ -632,7 +638,7 @@ fn rustdoc<'a, 'cfg>(cx: &mut Context<'a, 'cfg>, unit: &Unit<'a>) -> CargoResult
 
     add_error_format(bcx, &mut rustdoc);
 
-    if let Some(ref args) = bcx.extra_args_for(unit) {
+    if let Some(args) = bcx.extra_args_for(unit) {
         rustdoc.args(args);
     }
 
@@ -795,7 +801,7 @@ fn build_base_args<'a, 'cfg>(
         cmd.arg("-C").arg(&format!("opt-level={}", opt_level));
     }
 
-    if let Some(panic) = panic.as_ref() {
+    if *panic != PanicStrategy::Unwind {
         cmd.arg("-C").arg(format!("panic={}", panic));
     }
 
@@ -823,7 +829,7 @@ fn build_base_args<'a, 'cfg>(
         cmd.arg("-C").arg(format!("debuginfo={}", debuginfo));
     }
 
-    if let Some(ref args) = bcx.extra_args_for(unit) {
+    if let Some(args) = bcx.extra_args_for(unit) {
         cmd.args(args);
     }
 

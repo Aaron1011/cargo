@@ -428,6 +428,9 @@ impl Manifest {
     pub fn summary(&self) -> &Summary {
         &self.summary
     }
+    pub fn summary_mut(&mut self) -> &mut Summary {
+        &mut self.summary
+    }
     pub fn targets(&self) -> &[Target] {
         &self.targets
     }
@@ -468,10 +471,6 @@ impl Manifest {
 
     pub fn features(&self) -> &Features {
         &self.features
-    }
-
-    pub fn set_summary(&mut self, summary: Summary) {
-        self.summary = summary;
     }
 
     pub fn map_source(self, to_replace: SourceId, replace_with: SourceId) -> Manifest {
@@ -814,7 +813,14 @@ impl Target {
         }
     }
 
-    pub fn is_bin_example(&self) -> bool {
+    /// Returns `true` if it is a binary or executable example.
+    /// NOTE: Tests are `false`!
+    pub fn is_executable(&self) -> bool {
+        self.is_bin() || self.is_exe_example()
+    }
+
+    /// Returns `true` if it is an executable example.
+    pub fn is_exe_example(&self) -> bool {
         // Needed for --all-examples in contexts where only runnable examples make sense
         match self.kind {
             TargetKind::ExampleBin => true,

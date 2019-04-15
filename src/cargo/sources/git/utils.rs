@@ -508,7 +508,8 @@ where
         // callback asking for other authentication methods to try. Check
         // cred_helper_bad to make sure we only try the git credentail helper
         // once, to avoid looping forever.
-        if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) && cred_helper_bad.is_none() {
+        if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) && cred_helper_bad.is_none()
+        {
             let r = git2::Cred::credential_helper(cfg, url, username);
             cred_helper_bad = Some(r.is_err());
             return r;
@@ -765,7 +766,7 @@ fn fetch_with_cli(
     let mut cmd = process("git");
     cmd.arg("fetch")
         .arg("--tags") // fetch all tags
-        .arg("--quiet")
+        .arg("--force") // handle force pushes
         .arg("--update-head-ok") // see discussion in #2078
         .arg(url.to_string())
         .arg(refspec)
@@ -773,7 +774,7 @@ fn fetch_with_cli(
     config
         .shell()
         .verbose(|s| s.status("Running", &cmd.to_string()))?;
-    cmd.exec()?;
+    cmd.exec_with_output()?;
     Ok(())
 }
 

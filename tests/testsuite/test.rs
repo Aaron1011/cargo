@@ -6,7 +6,7 @@ use cargo;
 use crate::support::paths::CargoPathExt;
 use crate::support::registry::Package;
 use crate::support::{basic_bin_manifest, basic_lib_manifest, basic_manifest, cargo_exe, project};
-use crate::support::{is_nightly, rustc_host, sleep_ms};
+use crate::support::{rustc_host, sleep_ms};
 
 #[test]
 fn cargo_test_simple() {
@@ -106,9 +106,6 @@ fn cargo_test_release() {
 
 #[test]
 fn cargo_test_overflow_checks() {
-    if !is_nightly() {
-        return;
-    }
     let p = project()
         .file(
             "Cargo.toml",
@@ -167,18 +164,20 @@ fn cargo_test_quiet_with_harness() {
             fn main() {}
             #[test] fn test_hello() {}
         "#,
-        ).build();
+        )
+        .build();
 
-        p.cargo("test -q")
-            .with_stdout(
-                "
+    p.cargo("test -q")
+        .with_stdout(
+            "
 running 1 test
 .
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
-"
-            ).with_stderr("")
-            .run();
+",
+        )
+        .with_stderr("")
+        .run();
 }
 
 #[test]
@@ -208,13 +207,10 @@ fn cargo_test_quiet_no_harness() {
             fn main() {}
             #[test] fn test_hello() {}
         "#,
-        ).build();
+        )
+        .build();
 
-        p.cargo("test -q")
-            .with_stdout(
-                ""
-            ).with_stderr("")
-            .run();
+    p.cargo("test -q").with_stdout("").with_stderr("").run();
 }
 
 #[test]
@@ -1556,7 +1552,8 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 ",
         )
-        .with_stderr("\
+        .with_stderr(
+            "\
 [COMPILING] foo v0.0.1 ([CWD])
 [RUNNING] `rustc --crate-name foo src/lib.rs [..] --test [..]`
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
@@ -3273,7 +3270,7 @@ fn test_hint_not_masked_by_doctest() {
 }
 
 #[test]
-fn test_hint_workspace() {
+fn test_hint_workspace_virtual() {
     let p = project()
         .file(
             "Cargo.toml",
@@ -3290,6 +3287,40 @@ fn test_hint_workspace() {
 
     p.cargo("test")
         .with_stderr_contains("[ERROR] test failed, to rerun pass '-p b --lib'")
+        .with_status(101)
+        .run();
+    p.cargo("test")
+        .cwd("b")
+        .with_stderr_contains("[ERROR] test failed, to rerun pass '--lib'")
+        .with_status(101)
+        .run();
+}
+
+#[test]
+fn test_hint_workspace_nonvirtual() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+
+            [workspace]
+            members = ["a"]
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .file("a/Cargo.toml", &basic_manifest("a", "0.1.0"))
+        .file("a/src/lib.rs", "#[test] fn t1() {assert!(false)}")
+        .build();
+
+    p.cargo("test --all")
+        .with_stderr_contains("[ERROR] test failed, to rerun pass '-p a --lib'")
+        .with_status(101)
+        .run();
+    p.cargo("test -p a")
+        .with_stderr_contains("[ERROR] test failed, to rerun pass '-p a --lib'")
         .with_status(101)
         .run();
 }

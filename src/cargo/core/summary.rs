@@ -58,7 +58,7 @@ impl Summary {
                 )
             }
         }
-        let feature_map = build_feature_map(&features, &dependencies, namespaced_features)?;
+        let feature_map = build_feature_map(features, &dependencies, namespaced_features)?;
         Ok(Summary {
             inner: Rc::new(Inner {
                 package_id: pkg_id,
@@ -104,9 +104,8 @@ impl Summary {
         self
     }
 
-    pub fn set_checksum(mut self, cksum: String) -> Summary {
+    pub fn set_checksum(&mut self, cksum: String) {
         Rc::make_mut(&mut self.inner).checksum = Some(cksum);
-        self
     }
 
     pub fn map_dependencies<F>(mut self, f: F) -> Summary
@@ -170,7 +169,7 @@ where
         // iteration over the list if the dependency is found in the list.
         let mut dependency_found = if namespaced {
             match dep_map.get(feature.borrow()) {
-                Some(ref dep_data) => {
+                Some(dep_data) => {
                     if !dep_data.iter().any(|d| d.is_optional()) {
                         failure::bail!(
                             "Feature `{}` includes the dependency of the same name, but this is \
