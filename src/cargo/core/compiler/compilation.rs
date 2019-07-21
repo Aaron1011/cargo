@@ -143,6 +143,10 @@ impl<'cfg> Compilation<'cfg> {
         if target.edition() != Edition::Edition2015 {
             p.arg(format!("--edition={}", target.edition()));
         }
+        if target.proc_macro() {
+            p.arg("--proc-macro-crate");
+        }
+
         Ok(p)
     }
 

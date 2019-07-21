@@ -606,11 +606,6 @@ fn rustdoc<'a, 'cfg>(cx: &mut Context<'a, 'cfg>, unit: &Unit<'a>) -> CargoResult
     let mut rustdoc = cx.compilation.rustdoc_process(unit.pkg, unit.target)?;
     rustdoc.inherit_jobserver(&cx.jobserver);
     rustdoc.arg("--crate-name").arg(&unit.target.crate_name());
-    if unit.mode.is_doc() || unit.mode.is_doc_test() {
-        if unit.target.rustc_crate_types().contains(&"proc-macro") {
-            rustdoc.arg("--proc-macro-crate");
-        }
-    }
     add_path_args(bcx, unit, &mut rustdoc);
     add_cap_lints(bcx, unit, &mut rustdoc);
     add_color(bcx, &mut rustdoc);

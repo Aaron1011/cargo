@@ -50,6 +50,10 @@ pub fn targets(
         has_lib = false;
     }
 
+    // We to inform our test target about our proc-macro status,
+    // as this affects how we invoke rustdoc.
+    let is_proc_macro = manifest.lib.as_ref().and_then(|t| t.proc_macro()).unwrap_or(false);
+
     let package = manifest
         .package
         .as_ref()
@@ -86,6 +90,7 @@ pub fn targets(
         package.autotests,
         warnings,
         errors,
+        is_proc_macro
     )?);
 
     targets.extend(clean_benches(
@@ -393,6 +398,7 @@ fn clean_tests(
     autodiscover: Option<bool>,
     warnings: &mut Vec<String>,
     errors: &mut Vec<String>,
+    is_proc_macro: bool
 ) -> CargoResult<Vec<Target>> {
     let inferred = infer_from_directory(&package_root.join("tests"));
 
@@ -414,6 +420,9 @@ fn clean_tests(
         let mut target =
             Target::test_target(&toml.name(), path, toml.required_features.clone(), edition);
         configure(features, &toml, &mut target)?;
+        if is_proc_macro {
+            target.set_proc_macro(true);
+        }
         result.push(target);
     }
     Ok(result)
